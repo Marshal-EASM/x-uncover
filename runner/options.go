@@ -28,6 +28,7 @@ var (
 // Options contains the configuration options for tuning the enumeration process.
 type Options struct {
 	Query                goflags.StringSlice
+	InputIP              goflags.StringSlice
 	Engine               goflags.StringSlice
 	NewQuery             map[string][]string
 	AwesomeSearchQueries goflags.StringSlice
@@ -70,6 +71,7 @@ func ParseOptions() *Options {
 	flagSet.SetDescription(`quickly discover exposed assets on the internet using multiple search engines.`)
 
 	flagSet.CreateGroup("input", "Input",
+		flagSet.StringSliceVarP(&options.InputIP, "ip-list", "il", nil, "input file containing search ips (example: -i 'queries.txt')", goflags.FileStringSliceOptions),
 		flagSet.StringSliceVarP(&options.Query, "query", "q", nil, "search query, supports: stdin,file,config input (example: -q 'example query', -q 'query.txt')", goflags.FileStringSliceOptions),
 		flagSet.StringSliceVarP(&options.Engine, "engine", "e", nil, "search engine to query (shodan,shodan-idb,fofa,censys,quake,hunter,zoomeye,netlas,publicwww,criminalip,hunterhow,google,odin, binaryedge) (default shodan)", goflags.FileNormalizedStringSliceOptions),
 		flagSet.StringSliceVarP(&options.AwesomeSearchQueries, "awesome-search-queries", "asq", nil, "use awesome search queries to discover exposed assets on the internet (example: -asq 'jira')", goflags.FileStringSliceOptions),
@@ -219,6 +221,7 @@ func (options *Options) validateOptions() error {
 	// Check if domain, list of domains, or stdin info was provided.
 	// If none was provided, then return.
 	if genericutil.EqualsAll(0,
+		len(options.InputIP),
 		len(options.Query),
 		len(options.Shodan),
 		len(options.Censys),

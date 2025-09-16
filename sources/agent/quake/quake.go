@@ -57,7 +57,7 @@ func (agent *Agent) Query(session *sources.Session, query *sources.Query) (chan 
 			}
 
 			count += len(quakeResponse.Data)
-			gologger.Debug().Msgf("Querying quake for %s,count:%d", query.Query, count)
+			// gologger.Debug().Msgf("Querying quake for %s,count:%d", query.Query, count)
 			if count >= query.Limit || len(quakeResponse.Data) == 0 {
 				break
 			}

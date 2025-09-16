@@ -26,7 +26,11 @@ type Runner struct {
 // and setting up loggers, etc.
 func NewRunner(options *Options) (*Runner, error) {
 	runner := &Runner{options: options}
-	appendAllQueries(options)
+	if len(options.InputIP) > 0 {
+		runner.ParseIPQuery()
+	} else {
+		appendAllQueries(options)
+	}
 
 	opts := uncover.Options{
 		Agents:     options.Engine,
@@ -109,4 +113,35 @@ func (r *Runner) Close() {
 	if r.outputWriter != nil {
 		r.outputWriter.Close()
 	}
+}
+
+func (r *Runner) ParseIPQuery() {
+	var fofaQuery, quakeQuery, zoomEyeQuery, hunterQuery string
+	for _, ip := range r.options.InputIP {
+		// fofa: ip="1.1.1.1" || ip="1.1.1.2"
+		fofaQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
+		// quake: ip="1.1.1.1" || ip="1.1.1.2"
+		quakeQuery += fmt.Sprintf("ip:\"%s\" || ", ip)
+
+		// zoomeye: ip="1.1.1.1" || ip="1.1.1.2"
+		zoomEyeQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
+		// hunter: ip="1.1.1.1" || ip="1.1.1.2"
+		hunterQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
+	}
+	quakeQuery = strings.TrimSuffix(quakeQuery, " || ")
+	quakeQuery = fmt.Sprintf("(%s) AND status_code:200", quakeQuery)
+	if fofaQuery != "" {
+		r.options.Fofa = []string{fofaQuery}
+	}
+	if quakeQuery != "" {
+		r.options.Quake = []string{quakeQuery}
+	}
+	if hunterQuery != "" {
+		r.options.Hunter = []string{hunterQuery}
+	}
+	if zoomEyeQuery != "" {
+		r.options.ZoomEye = []string{zoomEyeQuery}
+	}
+
+	appendAllQueries(r.options)
 }
