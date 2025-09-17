@@ -51,13 +51,19 @@ func (agent *Agent) Query(session *sources.Session, query *sources.Query) (chan 
 					// "service.http.body",
 				},
 			}
+			now := time.Now().Unix()
+			gologger.Debug().Msgf("Query quake with request.")
 			quakeResponse := agent.query(URL, session, quakeRequest, results)
+			// cost time seconds
+			cost := time.Now().Unix() - now
+			gologger.Debug().Msgf("Query quake cost %d seconds", cost)
 			if quakeResponse == nil {
 				break
 			}
 
+			// update count
 			count += len(quakeResponse.Data)
-			// gologger.Debug().Msgf("Querying quake for %s,count:%d", query.Query, count)
+			gologger.Debug().Msgf("Querying quake count:%d", count)
 			if count >= query.Limit || len(quakeResponse.Data) == 0 {
 				break
 			}

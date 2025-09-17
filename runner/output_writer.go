@@ -2,9 +2,11 @@ package runner
 
 import (
 	"crypto/sha1"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -42,6 +44,14 @@ func (o *OutputWriter) Write(data []byte) {
 		_, _ = w.Write([]byte("\n"))
 	}
 }
+func (o *OutputWriter) WriteNoNewline(data []byte) {
+	o.Lock()
+	defer o.Unlock()
+
+	for _, w := range o.writers {
+		_, _ = w.Write(data)
+	}
+}
 
 func (o *OutputWriter) findDuplicate(data string, markAsSeen bool) bool {
 	// check if we've already printed this data
@@ -71,72 +81,78 @@ func (o *OutputWriter) WriteJsonData(data sources.Result) {
 	o.Write([]byte(data.JSON()))
 }
 
-
 // WriteCSVData writes the result taken as input in CSV format
 func (o *OutputWriter) WriteCSVData(data sources.Result) {
-    key := fmt.Sprintf("%s:%d", data.IP, data.Port)
-    if o.findDuplicate(key, true) {
-        return
-    }
+	key := fmt.Sprintf("%s:%d", data.IP, data.Port)
+	if o.findDuplicate(key, true) {
+		return
+	}
 
-    // 写入表头（仅第一次）
-    if !o.headerWritten {
-        o.writeCSVHeader()
-        o.headerWritten = true
-    }
+	// 写入表头（仅第一次）
+	if !o.headerWritten {
+		o.writeCSVHeader()
+		o.headerWritten = true
+	}
 
-    // 构造 CSV 数据行
-    var b strings.Builder
-    _, err := fmt.Fprintf(&b,
-        "%d,%s,%s,%d,%s,%s,%s,%s,%s,%s,%v,%s,%s,%s,%s,%s,%s,%d,%v,%s,%s,%s,%s,%s\n",
-        data.Timestamp,
-        data.Source,
-        data.IP,
-        data.Port,
-        data.Host,
-        data.Url,
-        data.HtmlTitle,
-        data.Domain,
-        data.Province,
-        data.City,
-        data.Country,
-        data.Asn,
-        data.Location,
-        data.ServiceProvider,
-        data.Fingerprints,
-        data.Banner,
-        data.ServiceName,
-        data.StatusCode,
-        data.Honeypot,
-        data.FaviconHash,
-        data.Server,
-        data.Org,
-        data.ISP,
-        data.ICPUnit,
-        // data.DNSResp.String(),
-    )
-    if err != nil {
-        return
-    }
+	// 使用 strings.Builder 创建 CSV writer
+	var b strings.Builder
+	csvWriter := csv.NewWriter(&b)
 
-    o.Lock()
-    defer o.Unlock()
+	// 构造 CSV 数据行
+	record := []string{
+		strconv.FormatInt(data.Timestamp, 10),
+		data.Source,
+		data.IP,
+		strconv.Itoa(data.Port),
+		data.Host,
+		data.Url,
+		data.HtmlTitle,
+		data.Domain,
+		data.Province,
+		data.City,
+		data.Country,
+		data.Asn,
+		data.Location,
+		data.ServiceProvider,
+		data.Fingerprints,
+		data.Banner,
+		data.ServiceName,
+		strconv.Itoa(data.StatusCode),
+		strconv.Itoa(data.Honeypot),
+		data.FaviconHash,
+		data.Server,
+		data.Org,
+		data.ISP,
+		data.ICPUnit,
+	}
 
-    for _, w := range o.writers {
-        _, _ = w.Write([]byte(b.String()))
-    }
+	// 写入 CSV 记录
+	if err := csvWriter.Write(record); err != nil {
+		return
+	}
+	csvWriter.Flush()
+
+	o.WriteNoNewline([]byte(b.String()))
 }
 
 // writeCSVHeader writes the header row once
 func (o *OutputWriter) writeCSVHeader() {
-    o.Lock()
-    defer o.Unlock()
+	var b strings.Builder
+	csvWriter := csv.NewWriter(&b)
 
-    header := "Timestamp,Source,IP,Port,Host,Url,HtmlTitle,Domain,Province,City,Country,Asn,Location,ServiceProvider,Fingerprints,Banner,ServiceName,StatusCode,Honeypot,Server,Org,ISP,ICPUnit\n"
+	header := []string{
+		"Timestamp", "Source", "IP", "Port", "Host", "Url", "HtmlTitle", "Domain",
+		"Province", "City", "Country", "Asn", "Location", "ServiceProvider",
+		"Fingerprints", "Banner", "ServiceName", "StatusCode", "Honeypot",
+		"FaviconHash", "Server", "Org", "ISP", "ICPUnit",
+	}
 
-    for _, w := range o.writers {
-        _, _ = w.Write([]byte(header))
-    }
+	if err := csvWriter.Write(header); err != nil {
+		return
+	}
+	csvWriter.Flush()
+
+	o.WriteNoNewline([]byte(b.String()))
 }
 
 // Close closes the output writers

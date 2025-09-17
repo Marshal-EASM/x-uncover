@@ -77,6 +77,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			gologger.Verbose().Label(result.Source).Msgf("%s\n", result.RawData())
 			r.outputWriter.WriteString(result.RawData())
 		case r.options.CSV:
+			gologger.Verbose().Label(result.Source).Msgf("host: %s\n", fmt.Sprint(result.IpPort()))
 			r.outputWriter.WriteCSVData(result)
 		default:
 			port := fmt.Sprint(result.Port)
