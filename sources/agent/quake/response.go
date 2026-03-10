@@ -1,5 +1,7 @@
 package quake
 
+import "encoding/json"
+
 type responseData struct {
 	Components []struct {
 		ProductLevel   string   `json:"product_level"`
@@ -46,12 +48,13 @@ type responseData struct {
 				DomHash string `json:"dom_hash"`
 				Simhash string `json:"simhash"`
 			} `json:"dom_tree"`
-			HeaderOrderHash string   `json:"header_order_hash"`
-			Server          string   `json:"server"`
-			StatusCode      int      `json:"status_code"`
-			RobotsHash      string   `json:"robots_hash"`
-			HttpLoadUrl     []string `json:"http_load_url"`
-			PageType        []string `json:"page_type"`
+			HeaderOrderHash string        `json:"header_order_hash"`
+			Server          string        `json:"server"`
+			StatusCode      int           `json:"status_code"`
+			RobotsHash      string        `json:"robots_hash"`
+			HttpLoadUrl     []string      `json:"http_load_url"`
+			PageType        []string      `json:"page_type"`
+			PageType2       []interface{} `json:"page_type_2,omitempty"`
 			CookieElement   struct {
 				OrderHash string `json:"order_hash"`
 				Simhash   string `json:"simhash"`
@@ -142,7 +145,19 @@ type responseData struct {
 									Length   int    `json:"length"`
 									Modulus  string `json:"modulus"`
 									Exponent int    `json:"exponent"`
-								} `json:"rsa_public_key"`
+								} `json:"rsa_public_key,omitempty"`
+								EcdsaPublicKey struct {
+									P      string `json:"p,omitempty"`
+									Gx     string `json:"gx,omitempty"`
+									B      string `json:"b,omitempty"`
+									Gy     string `json:"gy,omitempty"`
+									Curve  string `json:"curve,omitempty"`
+									Length int    `json:"length,omitempty"`
+									X      string `json:"x,omitempty"`
+									Y      string `json:"y,omitempty"`
+									Pub    string `json:"pub,omitempty"`
+									N      string `json:"n,omitempty"`
+								} `json:"ecdsa_public_key,omitempty"`
 								FingerprintSha256 string `json:"fingerprint_sha256"`
 							} `json:"subject_key_info"`
 							Redacted  bool `json:"redacted"`
@@ -209,8 +224,9 @@ type responseData struct {
 								} `json:"signed_certificate_timestamps,omitempty"`
 								AuthorityInfoAccess struct {
 									IssuerUrls []string `json:"issuer_urls"`
-									OcspUrls   []string `json:"ocsp_urls"`
+									OcspUrls   []string `json:"ocsp_urls,omitempty"`
 								} `json:"authority_info_access,omitempty"`
+								CrlDistributionPoints []string `json:"crl_distribution_points,omitempty"`
 							} `json:"extensions"`
 							TbsFingerprint         string   `json:"tbs_fingerprint"`
 							Names                  []string `json:"names,omitempty"`
@@ -218,9 +234,9 @@ type responseData struct {
 							FingerprintSha1        string   `json:"fingerprint_sha1"`
 							SpkiSubjectFingerprint string   `json:"spki_subject_fingerprint"`
 							Validity               struct {
-								Length int `json:"length"`
-								// Start  time.Time `json:"start"`
-								// End    time.Time `json:"end"`
+								Length int    `json:"length"`
+								Start  string `json:"start,omitempty"`
+								End    string `json:"end,omitempty"`
 							} `json:"validity"`
 							ValidationLevel   string `json:"validation_level"`
 							UnknownExtensions []struct {
@@ -334,7 +350,7 @@ type responseData struct {
 		SceneEn     string    `json:"scene_en"`
 		Radius      float64   `json:"radius"`
 	} `json:"location"`
-	// Time   time.Time `json:"time"`
+	Time   string `json:"time,omitempty"`
 	Asn    int    `json:"asn"`
 	Id     string `json:"id"`
 	OsName string `json:"os_name,omitempty"`
@@ -352,7 +368,9 @@ type meta struct {
 }
 
 type Response struct {
-	Data    []responseData `json:"data"`
-	Message string         `json:"message"`
-	Meta    meta           `json:"meta"`
+	Code    int             `json:"code"`
+	Data    []responseData  `json:"-"`
+	RawData json.RawMessage `json:"data"`
+	Message string          `json:"message"`
+	Meta    meta            `json:"meta"`
 }

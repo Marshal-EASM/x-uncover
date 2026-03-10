@@ -93,9 +93,12 @@ func (agent *Agent) query(URL string, session *sources.Session, quakeRequest *Re
 		return nil
 	}
 	if err := json.NewDecoder(bytes.NewReader(respdata)).Decode(quakeResponse); err != nil {
-		gologger.Error().Msgf("Failed to decode quake response: %v", err)
+		gologger.Error().Msgf("Failed to decode quake response: %v\nRaw response: %s", err, string(respdata))
 		results <- sources.Result{Source: agent.Name(), Error: err}
 		return nil
+	}
+	if quakeResponse.Code != 0 {
+		gologger.Warning().Msgf("Quake API returned code %d: %s", quakeResponse.Code, quakeResponse.Message)
 	}
 
 	for _, quakeResult := range quakeResponse.Data {
