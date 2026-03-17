@@ -1,6 +1,12 @@
 package quake
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 type responseData struct {
 	Components []struct {
@@ -368,9 +374,94 @@ type meta struct {
 }
 
 type Response struct {
-	Code    int             `json:"code"`
+	Code    string          `json:"code"`
 	Data    []responseData  `json:"-"`
 	RawData json.RawMessage `json:"data"`
 	Message string          `json:"message"`
 	Meta    meta            `json:"meta"`
+}
+
+func (r *Response) UnmarshalJSON(data []byte) error {
+	type responseAlias struct {
+		Code    json.RawMessage `json:"code"`
+		Data    json.RawMessage `json:"data"`
+		Message string          `json:"message"`
+		Meta    meta            `json:"meta"`
+	}
+
+	var aux responseAlias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	parsedCode, err := parseResponseCode(aux.Code)
+	if err != nil {
+		return err
+	}
+
+	parsedData, err := parseResponseData(aux.Data)
+	if err != nil {
+		return err
+	}
+
+	r.Code = parsedCode
+	r.Data = parsedData
+	r.RawData = aux.Data
+	r.Message = aux.Message
+	r.Meta = aux.Meta
+
+	return nil
+}
+
+func (r *Response) IsSuccess() bool {
+	return r.Code == "" || r.Code == "0"
+}
+
+func (r *Response) IsRateLimited() bool {
+	message := strings.ToLower(r.Message)
+	return strings.EqualFold(r.Code, "q3005") || strings.Contains(message, "调用api过于频繁") || strings.Contains(message, "too frequent")
+}
+
+func parseResponseCode(raw json.RawMessage) (string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil
+	}
+
+	var strCode string
+	if err := json.Unmarshal(raw, &strCode); err == nil {
+		return strCode, nil
+	}
+
+	var intCode int
+	if err := json.Unmarshal(raw, &intCode); err == nil {
+		return strconv.Itoa(intCode), nil
+	}
+
+	return "", fmt.Errorf("unexpected quake response code format: %s", string(raw))
+}
+
+func parseResponseData(raw json.RawMessage) ([]responseData, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) || bytes.Equal(raw, []byte("{}")) {
+		return nil, nil
+	}
+
+	if raw[0] == '[' {
+		var parsed []responseData
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
+
+	if raw[0] == '{' {
+		var parsed responseData
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, err
+		}
+		return []responseData{parsed}, nil
+	}
+
+	return nil, fmt.Errorf("unexpected quake response data format: %s", string(raw))
 }

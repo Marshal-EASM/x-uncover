@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/projectdiscovery/goflags"
@@ -136,6 +137,8 @@ func (r *Runner) Close() {
 
 const defaultIPBatchSize = 30
 
+var supportedIPQueryEngines = []string{"fofa", "quake", "zoomeye", "hunter"}
+
 // ipQueryBuilder defines how each engine formats an IP query
 type ipQueryBuilder struct {
 	formatIP  func(ip string) string    // format a single IP condition
@@ -182,10 +185,26 @@ func getEngineSlice(options *Options, engine string) *goflags.StringSlice {
 	}
 }
 
+func (r *Runner) selectedIPQueryEngines() []string {
+	if !r.options.EngineExplicit {
+		return supportedIPQueryEngines
+	}
+
+	engines := make([]string, 0, len(r.options.Engine))
+	for _, engine := range r.options.Engine {
+		if _, ok := engineIPBuilders[engine]; ok && !slices.Contains(engines, engine) {
+			engines = append(engines, engine)
+		}
+	}
+
+	return engines
+}
+
 func (r *Runner) ParseIPQuery() {
 	ips := r.options.InputIP
 	batchSize := defaultIPBatchSize
 	batchCount := (len(ips) + batchSize - 1) / batchSize
+	engines := r.selectedIPQueryEngines()
 
 	for i := 0; i < len(ips); i += batchSize {
 		end := i + batchSize
@@ -194,7 +213,8 @@ func (r *Runner) ParseIPQuery() {
 		}
 		batch := ips[i:end]
 
-		for engine, builder := range engineIPBuilders {
+		for _, engine := range engines {
+			builder := engineIPBuilders[engine]
 			parts := make([]string, 0, len(batch))
 			for _, ip := range batch {
 				parts = append(parts, builder.formatIP(ip))

@@ -30,6 +30,7 @@ type Options struct {
 	Query                goflags.StringSlice
 	InputIP              goflags.StringSlice
 	Engine               goflags.StringSlice
+	EngineExplicit       bool
 	NewQuery             map[string][]string
 	AwesomeSearchQueries goflags.StringSlice
 	ConfigFile           string
@@ -129,6 +130,7 @@ func ParseOptions() *Options {
 	if err := flagSet.Parse(); err != nil {
 		gologger.Fatal().Msg(err.Error())
 	}
+	options.EngineExplicit = len(options.Engine) > 0
 
 	options.configureOutput()
 	showBanner()

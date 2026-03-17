@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,11 @@ const (
 )
 
 var pageSize = 100
+
+var (
+	quakeSleep           = time.Sleep
+	quakeBackoffDuration = func() time.Duration { return time.Duration(rand.IntN(3)+1) * time.Second }
+)
 
 type Agent struct{}
 
@@ -38,6 +44,8 @@ func (agent *Agent) Query(session *sources.Session, query *sources.Query) (chan 
 	go func(pageSize int) {
 		defer close(results)
 		count := 0
+		rateLimitRetries := 0
+		maxRateLimitRetries := max(1, session.RetryMax+1)
 		for {
 			quakeRequest := &Request{
 				Query:       query.Query,
@@ -53,10 +61,19 @@ func (agent *Agent) Query(session *sources.Session, query *sources.Query) (chan 
 			}
 			now := time.Now().Unix()
 			gologger.Debug().Msgf("Query quake with request.")
-			quakeResponse := agent.query(URL, session, quakeRequest, results)
+			quakeResponse, shouldRetry := agent.query(URL, session, quakeRequest, results)
 			// cost time seconds
 			cost := time.Now().Unix() - now
 			gologger.Debug().Msgf("Query quake cost %d seconds", cost)
+			if shouldRetry {
+				rateLimitRetries++
+				if rateLimitRetries >= maxRateLimitRetries {
+					results <- sources.Result{Source: agent.Name(), Error: fmt.Errorf("quake api rate limit persisted after %d retries", rateLimitRetries)}
+					break
+				}
+				continue
+			}
+			rateLimitRetries = 0
 			if quakeResponse == nil {
 				break
 			}
@@ -79,26 +96,30 @@ func (agent *Agent) Query(session *sources.Session, query *sources.Query) (chan 
 	return results, nil
 }
 
-func (agent *Agent) query(URL string, session *sources.Session, quakeRequest *Request, results chan sources.Result) *Response {
+func (agent *Agent) query(URL string, session *sources.Session, quakeRequest *Request, results chan sources.Result) (*Response, bool) {
 	resp, err := agent.queryURL(session, URL, quakeRequest)
 	if err != nil {
 		results <- sources.Result{Source: agent.Name(), Error: err}
-		return nil
+		return nil, false
 	}
+	defer resp.Body.Close()
 
 	quakeResponse := &Response{}
 	respdata, err := io.ReadAll(resp.Body)
 	if err != nil {
 		results <- sources.Result{Source: agent.Name(), Error: fmt.Errorf("%v: %v", err, string(respdata))}
-		return nil
+		return nil, false
 	}
 	if err := json.NewDecoder(bytes.NewReader(respdata)).Decode(quakeResponse); err != nil {
 		gologger.Error().Msgf("Failed to decode quake response: %v\nRaw response: %s", err, string(respdata))
 		results <- sources.Result{Source: agent.Name(), Error: err}
-		return nil
+		return nil, false
 	}
-	if quakeResponse.Code != 0 {
-		gologger.Warning().Msgf("Quake API returned code %d: %s", quakeResponse.Code, quakeResponse.Message)
+	if handleQuakeRateLimit(quakeResponse) {
+		return quakeResponse, true
+	}
+	if !quakeResponse.IsSuccess() {
+		gologger.Warning().Msgf("Quake API returned code %s: %s", quakeResponse.Code, quakeResponse.Message)
 	}
 
 	for _, quakeResult := range quakeResponse.Data {
@@ -156,7 +177,18 @@ func (agent *Agent) query(URL string, session *sources.Session, quakeRequest *Re
 		results <- result
 	}
 
-	return quakeResponse
+	return quakeResponse, false
+}
+
+func handleQuakeRateLimit(response *Response) bool {
+	if response == nil || !response.IsRateLimited() {
+		return false
+	}
+
+	delay := quakeBackoffDuration()
+	gologger.Warning().Msgf("Quake API rate limited with code %s: %s, sleeping %s before retrying", response.Code, response.Message, delay)
+	quakeSleep(delay)
+	return true
 }
 
 func (agent *Agent) queryURL(session *sources.Session, URL string, quakeRequest *Request) (*http.Response, error) {
