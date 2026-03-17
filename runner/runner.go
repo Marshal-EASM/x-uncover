@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/uncover"
 	"github.com/projectdiscovery/uncover/sources"
@@ -65,7 +67,24 @@ func NewRunner(options *Options) (*Runner, error) {
 
 // RunEnumeration runs the subdomain enumeration flow on the targets specified
 func (r *Runner) Run(ctx context.Context) error {
+	ipPortCount := make(map[string]int)
+	skippedIPs := make(map[string]bool)
+	maxPorts := r.options.MaxPortsPerIP
+
 	resultCallback := func(result sources.Result) {
+		// Skip IPs with too many open ports (likely honeypots)
+		if maxPorts > 0 && result.IP != "" && result.Error == nil {
+			if skippedIPs[result.IP] {
+				return
+			}
+			ipPortCount[result.IP]++
+			if ipPortCount[result.IP] > maxPorts {
+				skippedIPs[result.IP] = true
+				gologger.Warning().Msgf("Skipping IP %s: exceeded %d ports (likely honeypot)\n", result.IP, maxPorts)
+				return
+			}
+		}
+
 		optionFields := r.options.OutputFields
 		switch {
 		case result.Error != nil:
@@ -116,33 +135,100 @@ func (r *Runner) Close() {
 	}
 }
 
+const defaultIPBatchSize = 30
+
+var supportedIPQueryEngines = []string{"fofa", "quake", "zoomeye", "hunter"}
+
+// ipQueryBuilder defines how each engine formats an IP query
+type ipQueryBuilder struct {
+	formatIP  func(ip string) string    // format a single IP condition
+	joinOp    string                    // operator to join conditions
+	wrapBatch func(query string) string // optional: wrap the final batch query
+}
+
+var engineIPBuilders = map[string]*ipQueryBuilder{
+	"fofa": {
+		formatIP:  func(ip string) string { return fmt.Sprintf(`ip="%s"`, ip) },
+		joinOp:    " || ",
+		wrapBatch: nil,
+	},
+	"quake": {
+		formatIP:  func(ip string) string { return fmt.Sprintf(`ip:"%s"`, ip) },
+		joinOp:    " || ",
+		wrapBatch: func(q string) string { return fmt.Sprintf("(%s) AND status_code:200", q) },
+	},
+	"zoomeye": {
+		formatIP:  func(ip string) string { return fmt.Sprintf(`ip="%s"`, ip) },
+		joinOp:    " || ",
+		wrapBatch: nil,
+	},
+	"hunter": {
+		formatIP:  func(ip string) string { return fmt.Sprintf(`ip="%s"`, ip) },
+		joinOp:    " || ",
+		wrapBatch: nil,
+	},
+}
+
+// getEngineSlice returns a pointer to the engine-specific query slice in Options
+func getEngineSlice(options *Options, engine string) *goflags.StringSlice {
+	switch engine {
+	case "fofa":
+		return &options.Fofa
+	case "quake":
+		return &options.Quake
+	case "zoomeye":
+		return &options.ZoomEye
+	case "hunter":
+		return &options.Hunter
+	default:
+		return nil
+	}
+}
+
+func (r *Runner) selectedIPQueryEngines() []string {
+	if !r.options.EngineExplicit {
+		return supportedIPQueryEngines
+	}
+
+	engines := make([]string, 0, len(r.options.Engine))
+	for _, engine := range r.options.Engine {
+		if _, ok := engineIPBuilders[engine]; ok && !slices.Contains(engines, engine) {
+			engines = append(engines, engine)
+		}
+	}
+
+	return engines
+}
+
 func (r *Runner) ParseIPQuery() {
-	var fofaQuery, quakeQuery, zoomEyeQuery, hunterQuery string
-	for _, ip := range r.options.InputIP {
-		// fofa: ip="1.1.1.1" || ip="1.1.1.2"
-		fofaQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
-		// quake: ip="1.1.1.1" || ip="1.1.1.2"
-		quakeQuery += fmt.Sprintf("ip:\"%s\" || ", ip)
+	ips := r.options.InputIP
+	batchSize := defaultIPBatchSize
+	batchCount := (len(ips) + batchSize - 1) / batchSize
+	engines := r.selectedIPQueryEngines()
 
-		// zoomeye: ip="1.1.1.1" || ip="1.1.1.2"
-		zoomEyeQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
-		// hunter: ip="1.1.1.1" || ip="1.1.1.2"
-		hunterQuery += fmt.Sprintf("ip=\"%s\" || ", ip)
-	}
-	quakeQuery = strings.TrimSuffix(quakeQuery, " || ")
-	quakeQuery = fmt.Sprintf("(%s) AND status_code:200", quakeQuery)
-	if fofaQuery != "" {
-		r.options.Fofa = []string{fofaQuery}
-	}
-	if quakeQuery != "" {
-		r.options.Quake = []string{quakeQuery}
-	}
-	if hunterQuery != "" {
-		r.options.Hunter = []string{hunterQuery}
-	}
-	if zoomEyeQuery != "" {
-		r.options.ZoomEye = []string{zoomEyeQuery}
+	for i := 0; i < len(ips); i += batchSize {
+		end := i + batchSize
+		if end > len(ips) {
+			end = len(ips)
+		}
+		batch := ips[i:end]
+
+		for _, engine := range engines {
+			builder := engineIPBuilders[engine]
+			parts := make([]string, 0, len(batch))
+			for _, ip := range batch {
+				parts = append(parts, builder.formatIP(ip))
+			}
+			query := strings.Join(parts, builder.joinOp)
+			if builder.wrapBatch != nil {
+				query = builder.wrapBatch(query)
+			}
+			if slice := getEngineSlice(r.options, engine); slice != nil {
+				*slice = append(*slice, query)
+			}
+		}
 	}
 
+	gologger.Info().Msgf("Split %d IPs into %d batches (batch size: %d)", len(ips), batchCount, batchSize)
 	appendAllQueries(r.options)
 }

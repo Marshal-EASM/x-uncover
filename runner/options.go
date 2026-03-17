@@ -30,6 +30,7 @@ type Options struct {
 	Query                goflags.StringSlice
 	InputIP              goflags.StringSlice
 	Engine               goflags.StringSlice
+	EngineExplicit       bool
 	NewQuery             map[string][]string
 	AwesomeSearchQueries goflags.StringSlice
 	ConfigFile           string
@@ -62,6 +63,7 @@ type Options struct {
 	Odin                 goflags.StringSlice
 	BinaryEdge           goflags.StringSlice
 	DisableUpdateCheck   bool
+	MaxPortsPerIP        int
 }
 
 // ParseOptions parses the command line flags provided by a user
@@ -115,6 +117,7 @@ func ParseOptions() *Options {
 		flagSet.BoolVarP(&options.CSV, "csv", "c", false, "write output in CSV format"),
 		flagSet.BoolVarP(&options.Raw, "raw", "r", false, "write raw output as received by the remote api"),
 		flagSet.IntVarP(&options.Limit, "limit", "l", 100, "limit the number of results to return"),
+		flagSet.IntVarP(&options.MaxPortsPerIP, "max-ports-per-ip", "mpp", 0, "skip IPs with more than N open ports (0=disabled, recommended: 50)"),
 		flagSet.BoolVarP(&options.NoColor, "no-color", "nc", false, "disable colors in output"),
 	)
 
@@ -127,6 +130,7 @@ func ParseOptions() *Options {
 	if err := flagSet.Parse(); err != nil {
 		gologger.Fatal().Msg(err.Error())
 	}
+	options.EngineExplicit = len(options.Engine) > 0
 
 	options.configureOutput()
 	showBanner()

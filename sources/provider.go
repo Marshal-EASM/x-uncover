@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	UncoverConfigDir = folderutil.AppConfigDirOrDefault(".uncover-config", "uncover")
+	UncoverConfigDir = filepath.Join(folderutil.HomeDirOrDefault(""),".uncover")
 	// DefaultProviderConfigLocation where keys and config of providers are stored
 	DefaultProviderConfigLocation = filepath.Join(UncoverConfigDir, "provider-config.yaml")
 )
